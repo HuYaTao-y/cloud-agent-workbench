@@ -1,0 +1,17 @@
+services:
+  workbench:
+    build: .
+    image: agent-workbench:local
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - workbench-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    init: true
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  workbench-data:

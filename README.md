@@ -1,0 +1,51 @@
+# 云端 Agent 助手工作台
+
+在浏览器里把代码开发和材料整理交给真实的 Codex CLI。每个会话有独立目录和 Codex 对话记录。关闭网页后，服务端会继续执行，回来可以查看进度、下载成果或追问。
+
+## 启动
+
+需要 Docker 和 Docker Compose v2。
+
+```bash
+cp .env.example .env
+```
+
+在 `.env` 中填入平台发放的 API 基础地址、密钥和模型 ID。基础地址应包含 API 的版本前缀。模型服务需兼容流式 Responses API，并支持客户端 function/custom 工具及工具结果。
+
+```bash
+docker compose up --build -d
+```
+
+打开 <http://localhost:8000>。如果旧版 Buildx 无法连接较新的 Docker 守护进程，可用下列命令构建并启动同一镜像。
+
+```bash
+DOCKER_BUILDKIT=0 docker build -t agent-workbench:local .
+docker compose up --no-build -d
+```
+
+`docker compose down` 停止服务。会话、工作目录和 CLI 历史保存在 `workbench-data` Docker 数据卷中，供下次启动继续使用。
+
+## 演示
+
+1. 新建「CSV 汇总工具」，上传 [expenses.csv](demo/expenses.csv)。发送任务「用 Python 标准库编写 summarize.py，按类别字母顺序输出金额合计，无表头，保留两位小数。运行脚本验证样例。」预期输出 `Supplies,12.75` 和 `Travel,30.00`。
+2. 新建「上线周会」，上传 [meeting.txt](demo/meeting.txt)。发送任务「阅读 meeting.txt，生成中文 report.md，列出负责人、工作事项、已确定截止时间和待定事项，用 Markdown 表格呈现。」下载报告并与原文核对。
+3. 切回「CSV 汇总工具」，发送「给现有脚本增加可选的 --total 选项，开启时追加总计。保留原行为，并在样例上运行验证。」预期新增 `TOTAL,42.75`。展开命令记录查看输出，下载更新后的脚本。
+4. 关闭页面并重新打开。切换两个会话，检查聊天、运行记录、文件和后续提问入口。执行失败或中断的任务可在原会话点击「重试」。
+
+可以在 [实际运行证据](demo/evidence/README.md) 查看浏览器截图、CLI 记录和下载产物。
+
+也可以通过应用 API 复跑两条真实 CLI 流程并校验产物。每次执行创建两个新会话。
+
+```bash
+python3 demo/verify.py --output /tmp/workbench-evidence
+```
+
+本地逻辑检查可运行 `python3 -m unittest discover -s tests`。
+
+## 实现与限制
+
+- Python HTTP 服务将任务放进单个执行队列，以 JSONL 读取 `codex exec` 事件。后续轮次使用 CLI 返回的线程 ID 调用 `codex exec resume`。
+- SQLite 保存会话、任务状态和事件。浏览器每 1.2 秒查询最新状态。一个任务最长执行十分钟。服务重启后，尚未结束的任务标为「已中断」，用户可以重试。
+- 服务端代理持有模型密钥，向上游转发流式 Responses API，并过滤平台不支持的服务端工具。CLI 进程使用独立的本地代理令牌。
+- Compose 将端口发布到本机回环地址。Agent 在容器内以非 root 用户运行，每个会话使用独立 UID 和目录。容器根文件系统只读。应用面向单用户，容器内工具仍能执行任意命令和访问网络，工作目录权限不足以把应用变成多租户安全边界。请仅用于本地可信任务和材料。
+- 单文件上限 20 MiB，同名上传会返回冲突。文件面板可下载材料和成果，命令及文本回复在会话中查看。

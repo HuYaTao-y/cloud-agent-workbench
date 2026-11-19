@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/ui.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <header class="brand"><span class="brand-mark" aria-hidden="true">▰</span> Agent 工作台</header>
+    <button id="new-session" class="new">＋ 新建会话</button>
+    <h2>会话</h2>
+    <nav id="sessions" aria-label="会话列表"></nav>
+  </aside>
+  <main>
+    <header class="topbar"><h1 id="title">工作台</h1><span id="status" role="status"></span></header>
+    <div class="layout">
+      <section class="conversation" aria-label="对话">
+        <div id="timeline" class="timeline"></div>
+        <div class="composer">
+          <p id="error" role="alert" hidden></p>
+          <form id="prompt" hidden>
+            <label for="message">交给 Agent 的任务</label>
+            <textarea id="message" placeholder="描述任务，或在这里补充修改意见…" maxlength="12000" required></textarea>
+            <div class="composer-actions"><button class="primary">发送任务 <span aria-hidden="true">↗</span></button></div>
+          </form>
+        </div>
+      </section>
+      <section class="files" aria-label="会话文件">
+        <div class="files-heading"><h2>会话文件</h2><label id="upload-label" class="upload" hidden>＋ 上传<input id="upload" type="file" multiple></label></div>
+        <p id="files-empty">当前没有文件</p>
+        <ul id="files"></ul>
+      </section>
+    </div>
+  </main>
+  <dialog id="create">
+    <form id="session-form">
+      <h2>新建会话</h2>
+      <label for="session-name">会话名称</label>
+      <input id="session-name" maxlength="100" placeholder="例如 CSV 汇总工具" autofocus>
+      <div class="dialog-actions"><button id="cancel" type="button">取消</button><button class="primary">创建会话</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
