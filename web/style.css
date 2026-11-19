@@ -97,3 +97,8 @@ dialog input{width:100%;margin-bottom:18px;padding:10px;border:1px solid var(--l
 #tool-table td{padding:9px 12px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
 #tool-table tr:nth-child(odd){background:#f5f8f2}
 #tool-table p{font-size:11px;color:var(--muted)}
+#candidate-panel{margin-top:24px}
+#candidate-list{display:grid;gap:8px}
+.tool-candidate{display:grid;gap:5px;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:white;overflow-wrap:anywhere;font-size:13px}
+.tool-candidate span{color:var(--muted);font-size:12px}
+.tool-candidate button{justify-self:start;margin-top:3px}

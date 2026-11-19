@@ -36,3 +36,13 @@ class AdapterTests(unittest.TestCase):
     def test_model_config_public_view_withholds_key(self):
         config = {"url": "https://example.com/v1", "model": "test", "key": "private"}
         self.assertEqual(app.public_model(config), {"url": config["url"], "model": "test", "hasKey": True})
+
+    def test_candidate_file_scan_ignores_test_and_packaging_scripts(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "tests").mkdir()
+            for name in ("json2csv.py", "setup.py", "test_helper.py", "tests/fixtures.py"):
+                (root / name).touch()
+            self.assertEqual(app.workspace_files(root, for_tools=True), ["json2csv.py"])

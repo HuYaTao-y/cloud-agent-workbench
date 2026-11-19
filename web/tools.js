@@ -13,7 +13,14 @@ function openPublish(session, source) {
   publishing = {session, source};
   get('publish-form').reset();
   get('publish-source').textContent = source;
-  get('publish-name').value = source.split('/').at(-1).replace(/\.py$/, '');
+  const filename = source.split('/').at(-1);
+  get('publish-name').value = filename.replace(/\.py$/, '');
+  if (/^json[-_]?(?:2|to)[-_]?csv\.py$/i.test(filename)) {
+    get('publish-name').value = 'JSON 转 CSV';
+    get('publish-description').value = '将 JSON 转为 CSV，支持预览和下载。';
+    get('publish-accept').value = '.json';
+    get('publish-output-format').value = 'csv';
+  }
   get('publish-error').hidden = true;
   get('publish-tool').showModal();
 }
@@ -62,7 +69,7 @@ function renderTool(tool) {
 async function openTools(preferred = null) {
   switchView('tools');
   try {
-    const tools = await api('/api/tools');
+    const [tools, candidates] = await Promise.all([api('/api/tools'), api('/api/tools/candidates')]);
     if (currentView !== 'tools') return;
     get('tool-empty').hidden = tools.length > 0;
     get('tool-list').replaceChildren(...tools.map((tool) => {
@@ -70,6 +77,15 @@ async function openTools(preferred = null) {
       card.dataset.id = tool.id;
       card.append(element('strong', '', tool.name), element('span', '', tool.description || tool.source));
       card.onclick = () => renderTool(tool);
+      return card;
+    }));
+    get('candidate-panel').hidden = candidates.length === 0;
+    get('candidate-list').replaceChildren(...candidates.map((candidate) => {
+      const card = element('div', 'tool-candidate');
+      card.append(element('strong', '', candidate.source), element('span', '', candidate.title));
+      const save = element('button', 'publish-file', '配置并保存');
+      save.onclick = () => openPublish(candidate.session, candidate.source);
+      card.append(save);
       return card;
     }));
     renderTool(tools.find((tool) => tool.id === (preferred || selectedTool?.id)) || tools[0]);

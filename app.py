@@ -102,6 +102,8 @@ def initialize():
             UPDATE runs SET status = 'interrupted' WHERE status IN ('queued', 'running');
         """)
         columns = {row["name"] for row in con.execute("PRAGMA table_info(tools)")}
+        if "session_id" not in columns:
+            con.execute("ALTER TABLE tools ADD COLUMN session_id TEXT")
         if "output_format" not in columns:
             con.execute("ALTER TABLE tools ADD COLUMN output_format TEXT NOT NULL DEFAULT 'text'")
 
@@ -191,9 +193,60 @@ def register_tool(sid, body):
         raise ValueError("Python 脚本存在语法错误") from None
     tool_id = uuid.uuid4().hex
     with db() as con:
-        con.execute("INSERT INTO tools VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (tool_id, name, description, source, script, accept, flag, flag_label, time.time(), output_format))
+        con.execute("""INSERT INTO tools (id, name, description, source, script, accept, flag, flag_label,
+                    created, output_format, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (tool_id, name, description, source, script, accept, flag, flag_label, time.time(), output_format, sid))
     return tool_id
+
+
+def workspace_files(root, *, for_tools=False):
+    files = []
+    excluded = {"node_modules", "__pycache__"}
+    if for_tools:
+        excluded.update({"tests", "test"})
+    for directory, dirs, names in os.walk(root):
+        dirs[:] = [name for name in dirs if not name.startswith(".") and name not in excluded]
+        for name in names:
+            if name.startswith("."):
+                continue
+            if for_tools and (not name.endswith(".py") or name.startswith("test_") or name.endswith("_test.py")
+                              or name in {"setup.py", "conftest.py", "__init__.py"}):
+                continue
+            path = Path(directory) / name
+            if not path.is_symlink() and path.is_file():
+                files.append(str(path.relative_to(root)))
+    return sorted(files)
+
+
+def tool_candidates():
+    with db() as con:
+        sessions = con.execute("""
+            SELECT id, title FROM sessions WHERE EXISTS (
+                SELECT 1 FROM runs WHERE session = sessions.id AND status = 'completed'
+            ) ORDER BY created DESC
+        """).fetchall()
+        snapshots = con.execute("SELECT session_id, source, script FROM tools").fetchall()
+        saved = {(row["session_id"], row["source"]) for row in snapshots}
+        legacy = {}
+        for row in snapshots:
+            if row["session_id"] is None:
+                legacy.setdefault(row["source"], []).append(row["script"])
+    candidates = []
+    for session in sessions:
+        sid = session["id"]
+        for source in workspace_files(DATA / sid / "workspace", for_tools=True):
+            if (sid, source) in saved:
+                continue
+            if source in legacy:
+                root = DATA / sid / "workspace"
+                try:
+                    with open_download(root, workspace_file(root, source)) as handle:
+                        if handle.read(262145) in legacy[source]:
+                            continue
+                except OSError:
+                    continue
+            candidates.append({"session": sid, "title": session["title"], "source": source})
+    return candidates
 
 
 def run_tool(tool, filename, data, enable_flag):
@@ -463,6 +516,9 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     self.respond({"error": "资源不存在"}, 404)
                 return
+            if url.path == "/api/tools/candidates" and not post:
+                self.respond(tool_candidates())
+                return
             if url.path == "/api/tools" and not post:
                 with db() as con:
                     rows = con.execute("SELECT id, name, description, source, accept, flag, flag_label, output_format FROM tools ORDER BY created DESC").fetchall()
@@ -566,14 +622,7 @@ class Handler(BaseHTTPRequestHandler):
             with db() as con:
                 rows = con.execute("SELECT * FROM runs WHERE session = ? ORDER BY id", (sid,)).fetchall()
             runs = [dict(row) | {"events": json.loads(row["events"])} for row in rows]
-            files = []
-            for directory, dirs, names in os.walk(root):
-                dirs[:] = [name for name in dirs if not name.startswith(".") and name not in {"node_modules", "__pycache__"}]
-                for name in names:
-                    path = Path(directory) / name
-                    if not name.startswith(".") and not path.is_symlink() and path.is_file():
-                        files.append(str(path.relative_to(root)))
-            self.respond(dict(session) | {"runs": runs, "files": sorted(files)})
+            self.respond(dict(session) | {"runs": runs, "files": workspace_files(root)})
         else:
             self.respond({"error": "资源不存在"}, 404)
 

@@ -43,8 +43,13 @@
       <div class="tool-layout">
         <div class="tool-library">
           <h2>已保存的工具</h2>
-          <p id="tool-empty">打开一个会话，在 Python 文件旁选择「保存为工具」。</p>
+          <p id="tool-empty">保存会话中生成的脚本，即可在这里重复运行。</p>
           <div id="tool-list"></div>
+          <div id="candidate-panel" hidden>
+            <h2>待保存脚本</h2>
+            <p>从已完成的会话发现。确认输入和输出后即可保存。</p>
+            <div id="candidate-list"></div>
+          </div>
         </div>
         <div id="tool-panel" class="surface" hidden>
           <header><h2 id="tool-name"></h2><p id="tool-description"></p></header>
