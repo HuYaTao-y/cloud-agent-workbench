@@ -57,3 +57,43 @@ dialog h2{margin:0 0 18px;font-size:19px}
 dialog input{width:100%;margin-bottom:18px;padding:10px;border:1px solid var(--line);border-radius:8px}
 @media(max-width:800px){body{grid-template-columns:165px minmax(0,1fr)}.layout{grid-template-columns:minmax(0,1fr) 190px}.sidebar{padding:16px 10px}.files{padding:12px}.topbar{padding:16px}}
 @media(max-width:600px){body{display:flex;flex-direction:column}.sidebar{border:0;border-bottom:1px solid var(--line);flex-shrink:0}.brand{display:inline-flex;margin:0 10px 8px 0}.new{width:auto}.sidebar h2{display:none}#sessions{display:flex;overflow:auto}#sessions button{white-space:nowrap}main{flex:1}.layout{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}.files{max-height:24vh;border-left:0;border-top:1px solid var(--line)}}
+.sections{display:grid;gap:4px;margin-top:12px}
+.sections button{display:flex;align-items:center;gap:9px;text-align:left;background:transparent;border-color:transparent;color:#38483a}
+.sections button[aria-current=true]{background:#dce7d8;color:var(--green);font-weight:700}
+#files li{border-bottom:1px solid var(--line);padding:7px 0}
+#files a{border:0;padding:5px 0}
+.publish-file{font-size:11px;padding:4px 7px;color:var(--green);background:#f6f8f4}
+.workspace-page{padding:30px clamp(16px,4vw,58px);overflow:auto}
+.tool-layout{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,680px);gap:20px;align-items:start}
+.tool-library h2,.surface h2{font-size:17px;margin:0 0 8px}
+.tool-library p,.surface header p{font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 18px}
+#tool-list{display:grid;gap:8px}
+.tool-card{display:grid;gap:6px;padding:13px 14px;text-align:left;overflow-wrap:anywhere}
+.tool-card[aria-current=true]{border-color:#abc7ad;background:#eef5ea}
+.tool-card span{color:var(--muted);font-size:12px}
+.surface{background:white;padding:22px;border-radius:14px;border:1px solid var(--line)}
+.model-card{max-width:650px}
+.model-card input:not([type=checkbox]){display:block;width:100%;padding:10px;border:1px solid #cfd8ca;border-radius:8px;margin-bottom:16px}
+#model-key-status{color:var(--muted);font-weight:400;padding-left:4px}
+.runner-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:12px}
+.runner-actions span{font-size:13px}
+.file-picker{display:flex;position:relative;min-height:100px;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:12px;border:1px dashed #a0b69f;border-radius:10px;background:#f6f9f3;color:var(--green);cursor:pointer;overflow-wrap:anywhere}
+.file-picker:focus-within{outline:2px solid #58886b;outline-offset:2px}
+.file-picker input{position:absolute;opacity:0;width:100%;height:100%;inset:0;cursor:pointer}
+.check-label{margin-top:13px;display:flex;align-items:center;gap:5px}
+.result-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:20px}
+.result-heading h3{font-size:14px;margin:0}
+.result-heading a{color:var(--green);font-size:13px}
+#tool-output{padding:12px;border-radius:8px;background:#f4f6f1;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;margin-bottom:10px}
+#publish-tool{width:min(510px,92vw)}
+#publish-source,.publish-help{font-size:12px;color:var(--muted);overflow-wrap:anywhere;line-height:1.5}
+#publish-tool input{margin-bottom:12px}
+.publish-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:760px){.tool-layout{grid-template-columns:1fr}.surface{padding:15px}.workspace-page{padding-top:15px}}
+@media(max-width:600px){.sections{display:flex;margin:3px 0}.sections button{padding:5px 8px}}
+#publish-tool select{width:100%;font:inherit;border:1px solid var(--line);padding:9px 10px;border-radius:8px;background:white;margin-bottom:12px}
+#tool-table{overflow:auto;max-height:320px;margin-top:10px}
+#tool-table table{border-collapse:collapse;width:100%;font-size:13px}
+#tool-table td{padding:9px 12px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#tool-table tr:nth-child(odd){background:#f5f8f2}
+#tool-table p{font-size:11px;color:var(--muted)}

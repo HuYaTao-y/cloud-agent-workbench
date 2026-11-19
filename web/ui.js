@@ -4,6 +4,7 @@ let active = localStorage.getItem('workbench-session');
 let lastDetail = '';
 let lastList = '';
 let refreshId = 0;
+let currentView = 'session';
 
 async function api(path, options) {
   const response = await fetch(path, options);
@@ -29,6 +30,7 @@ function element(tag, className, content) {
 }
 
 function select(id) {
+  switchView('session');
   if (id !== active) get('message').value = '';
   active = id;
   if (id) localStorage.setItem('workbench-session', id);
@@ -42,8 +44,10 @@ function renderDetail(detail) {
   const timeline = get('timeline');
   const atBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 80;
   const open = new Set(Array.from(timeline.querySelectorAll('details[open]'), (node) => node.dataset.id));
-  get('title').textContent = detail?.title || '工作台';
-  get('status').textContent = labels[detail?.runs.at(-1)?.status] || '';
+  if (currentView === 'session') {
+    get('title').textContent = detail?.title || '工作台';
+    get('status').textContent = labels[detail?.runs.at(-1)?.status] || '';
+  }
   get('prompt').hidden = !detail;
   get('upload-label').hidden = !detail;
   timeline.replaceChildren();
@@ -98,6 +102,11 @@ function renderDetail(detail) {
     link.href = '/api/sessions/' + detail.id + '/files?name=' + encodeURIComponent(name);
     link.download = '';
     row.append(link);
+    if (name.endsWith('.py')) {
+      const publish = element('button', 'publish-file', '保存为工具');
+      publish.onclick = () => openPublish(detail.id, name);
+      row.append(publish);
+    }
     return row;
   }));
 }
@@ -128,6 +137,19 @@ async function refresh() {
   } catch (error) {
     if (generation === refreshId) showError(error);
   }
+}
+
+function switchView(view) {
+  currentView = view;
+  for (const section of ['session', 'tools', 'model']) get(section + '-view').hidden = section !== view;
+  get('show-tools').setAttribute('aria-current', String(view === 'tools'));
+  get('show-model').setAttribute('aria-current', String(view === 'model'));
+  if (view === 'session') {
+    lastDetail = '';
+    return;
+  }
+  get('title').textContent = view === 'tools' ? '工具库' : '模型 API';
+  get('status').textContent = '';
 }
 
 get('new-session').onclick = () => get('create').showModal();

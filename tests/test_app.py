@@ -27,3 +27,12 @@ class AdapterTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 with app.open_download(root, link):
                     self.fail("download followed a symlink")
+
+    def test_tool_flag_cannot_supply_multiple_arguments(self):
+        with self.assertRaises(ValueError):
+            app.tool_flag("--total --extra")
+        self.assertEqual(app.tool_flag("--total"), "--total")
+
+    def test_model_config_public_view_withholds_key(self):
+        config = {"url": "https://example.com/v1", "model": "test", "key": "private"}
+        self.assertEqual(app.public_model(config), {"url": config["url"], "model": "test", "hasKey": True})

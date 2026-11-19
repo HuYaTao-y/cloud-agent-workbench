@@ -6,17 +6,22 @@
   <title>Agent 工作台</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/ui.js" defer></script>
+  <script src="/tools.js" defer></script>
 </head>
 <body>
   <aside class="sidebar">
     <header class="brand"><span class="brand-mark" aria-hidden="true">▰</span> Agent 工作台</header>
     <button id="new-session" class="new">＋ 新建会话</button>
+    <div class="sections" aria-label="工作台导航">
+      <button id="show-tools"><span aria-hidden="true">▤</span> 工具库</button>
+      <button id="show-model"><span aria-hidden="true">⚙</span> 模型 API</button>
+    </div>
     <h2>会话</h2>
     <nav id="sessions" aria-label="会话列表"></nav>
   </aside>
   <main>
     <header class="topbar"><h1 id="title">工作台</h1><span id="status" role="status"></span></header>
-    <div class="layout">
+    <div id="session-view" class="layout">
       <section class="conversation" aria-label="对话">
         <div id="timeline" class="timeline"></div>
         <div class="composer">
@@ -34,6 +39,53 @@
         <ul id="files"></ul>
       </section>
     </div>
+    <section id="tools-view" class="workspace-page" aria-label="工具库" hidden>
+      <div class="tool-layout">
+        <div class="tool-library">
+          <h2>已保存的工具</h2>
+          <p id="tool-empty">打开一个会话，在 Python 文件旁选择「保存为工具」。</p>
+          <div id="tool-list"></div>
+        </div>
+        <div id="tool-panel" class="surface" hidden>
+          <header><h2 id="tool-name"></h2><p id="tool-description"></p></header>
+          <form id="tool-run">
+            <label class="file-picker" for="tool-input">
+              <strong id="tool-file-name">选择输入文件</strong>
+              <span id="tool-file-hint"></span>
+              <input id="tool-input" type="file" required>
+            </label>
+            <label id="tool-flag-row" class="check-label" hidden>
+              <input id="tool-flag" type="checkbox"><span id="tool-flag-label"></span>
+            </label>
+            <div class="runner-actions"><button class="primary" id="tool-run-button">运行工具</button><span id="tool-state" role="status"></span></div>
+          </form>
+          <section id="tool-result" hidden>
+            <div class="result-heading"><h3>运行结果</h3><a id="tool-download" hidden>下载结果 ↓</a></div>
+            <div id="tool-table" hidden><table aria-label="CSV 输出预览"><tbody></tbody></table><p>预览最多显示 25 行、20 列。</p></div>
+            <pre id="tool-output"></pre>
+            <details id="tool-diagnostics" hidden><summary>查看诊断</summary><pre></pre></details>
+          </section>
+        </div>
+      </div>
+    </section>
+    <section id="model-view" class="workspace-page" aria-label="模型 API" hidden>
+      <div class="surface model-card">
+        <header><h2>连接配置</h2><p>应用将使用此配置发起后续 Agent 任务。</p></header>
+        <form id="model-form">
+          <label for="model-url">API 基础地址</label>
+          <input id="model-url" type="url" maxlength="2048" placeholder="https://example.com/v1" required>
+          <label for="model-name">模型 ID</label>
+          <input id="model-name" maxlength="200" required>
+          <label for="model-key">API Key <span id="model-key-status"></span></label>
+          <input id="model-key" type="password" autocomplete="new-password" maxlength="4096" placeholder="输入新的 Key">
+          <div class="runner-actions">
+            <button id="model-test" type="button">测试连接</button>
+            <button class="primary" id="model-save">保存配置</button>
+            <span id="model-message" role="status"></span>
+          </div>
+        </form>
+      </div>
+    </section>
   </main>
   <dialog id="create">
     <form id="session-form">
@@ -41,6 +93,27 @@
       <label for="session-name">会话名称</label>
       <input id="session-name" maxlength="100" placeholder="例如 CSV 汇总工具" autofocus>
       <div class="dialog-actions"><button id="cancel" type="button">取消</button><button class="primary">创建会话</button></div>
+    </form>
+  </dialog>
+  <dialog id="publish-tool">
+    <form id="publish-form">
+      <h2>保存为工具</h2>
+      <p id="publish-source"></p>
+      <label for="publish-name">工具名称</label>
+      <input id="publish-name" required maxlength="80">
+      <label for="publish-description">用途说明</label>
+      <input id="publish-description" maxlength="500" placeholder="告诉用户这个工具会生成什么结果">
+      <label for="publish-accept">输入文件扩展名</label>
+      <input id="publish-accept" maxlength="20" placeholder="例如 .csv，留空可选任意文件">
+      <label for="publish-output-format">输出格式</label>
+      <select id="publish-output-format"><option value="text">文本</option><option value="csv">CSV 表格</option></select>
+      <div class="publish-grid">
+        <div><label for="publish-flag">可选命令行开关</label><input id="publish-flag" maxlength="50" placeholder="例如 --total"></div>
+        <div><label for="publish-flag-label">开关显示名称</label><input id="publish-flag-label" maxlength="50" placeholder="例如 包含总计"></div>
+      </div>
+      <p class="publish-help">工具将保存当前脚本版本。运行时会把上传文件作为第一个参数传入，并显示标准输出。</p>
+      <p id="publish-error" class="error" role="alert" hidden></p>
+      <div class="dialog-actions"><button id="publish-cancel" type="button">取消</button><button class="primary">保存工具</button></div>
     </form>
   </dialog>
 </body>
