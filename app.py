@@ -106,6 +106,7 @@ def initialize():
             con.execute("ALTER TABLE tools ADD COLUMN session_id TEXT")
         if "output_format" not in columns:
             con.execute("ALTER TABLE tools ADD COLUMN output_format TEXT NOT NULL DEFAULT 'text'")
+        link_legacy_snapshots(con)
 
 
 def model_config():
@@ -138,15 +139,36 @@ def model_candidate(body):
     return candidate
 
 
+class ModelRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old, new = urlsplit(req.full_url), urlsplit(newurl)
+        default_ports = {"http": 80, "https": 443}
+        try:
+            old_origin = (old.scheme, old.hostname, old.port or default_ports.get(old.scheme))
+            new_origin = (new.scheme, new.hostname, new.port or default_ports.get(new.scheme))
+        except ValueError:
+            new_origin = None
+            old_origin = ()
+        if old_origin != new_origin or new.username is not None:
+            raise urllib.error.HTTPError(req.full_url, code, "模型请求拒绝跨来源重定向", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+MODEL_HTTP = urllib.request.build_opener(ModelRedirectHandler())
+
+
 def test_model_connection(config):
     request = urllib.request.Request(
         config["url"] + "/models", headers={"Authorization": "Bearer " + config["key"]},
     )
     try:
-        with urllib.request.urlopen(request, timeout=12) as response:
+        with MODEL_HTTP.open(request, timeout=12) as response:
             data = json.loads(response.read(1024 * 1024))
         models = [row["id"] for row in data["data"] if isinstance(row.get("id"), str)]
     except urllib.error.HTTPError as exc:
+        exc.close()
+        if 300 <= exc.code < 400:
+            raise ValueError("模型服务重定向失败，请填写最终 API 地址") from None
         raise ValueError(f"模型服务返回 HTTP {exc.code}") from None
     except (OSError, ValueError, KeyError, AttributeError, TypeError):
         raise ValueError("无法读取模型列表，请检查地址和连接") from None
@@ -170,6 +192,7 @@ def text_field(body, key, limit, default=""):
 
 def register_tool(sid, body):
     source = text_field(body, "source", 512)
+    update_id = text_field(body, "updateId", 32)
     name = text_field(body, "name", 80)
     description = text_field(body, "description", 500)
     accept = text_field(body, "accept", 20)
@@ -193,6 +216,16 @@ def register_tool(sid, body):
         raise ValueError("Python 脚本存在语法错误") from None
     tool_id = uuid.uuid4().hex
     with db() as con:
+        if update_id:
+            updated = con.execute("""
+                UPDATE tools SET name = ?, description = ?, script = ?, accept = ?, flag = ?,
+                    flag_label = ?, created = ?, output_format = ?, session_id = ?
+                WHERE id = ? AND source = ? AND (session_id = ? OR session_id IS NULL)
+            """, (name, description, script, accept, flag, flag_label, time.time(), output_format,
+                  sid, update_id, source, sid))
+            if not updated.rowcount:
+                raise ValueError("待更新工具已失效")
+            return update_id
         con.execute("""INSERT INTO tools (id, name, description, source, script, accept, flag, flag_label,
                     created, output_format, session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (tool_id, name, description, source, script, accept, flag, flag_label, time.time(), output_format, sid))
@@ -218,6 +251,26 @@ def workspace_files(root, *, for_tools=False):
     return sorted(files)
 
 
+def link_legacy_snapshots(con):
+    tools = con.execute("SELECT id, source, script FROM tools WHERE session_id IS NULL").fetchall()
+    if not tools:
+        return
+    sessions = con.execute("SELECT id FROM sessions").fetchall()
+    for tool in tools:
+        matches = []
+        for session in sessions:
+            sid = session["id"]
+            root = DATA / sid / "workspace"
+            try:
+                with open_download(root, workspace_file(root, tool["source"])) as handle:
+                    if handle.read(262145) == tool["script"]:
+                        matches.append(sid)
+            except (OSError, ValueError):
+                continue
+        if len(matches) == 1:
+            con.execute("UPDATE tools SET session_id = ? WHERE id = ?", (matches[0], tool["id"]))
+
+
 def tool_candidates():
     with db() as con:
         sessions = con.execute("""
@@ -225,27 +278,36 @@ def tool_candidates():
                 SELECT 1 FROM runs WHERE session = sessions.id AND status = 'completed'
             ) ORDER BY created DESC
         """).fetchall()
-        snapshots = con.execute("SELECT session_id, source, script FROM tools").fetchall()
-        saved = {(row["session_id"], row["source"]) for row in snapshots}
-        legacy = {}
-        for row in snapshots:
-            if row["session_id"] is None:
-                legacy.setdefault(row["source"], []).append(row["script"])
+        snapshots = con.execute(
+            "SELECT id, session_id, source, script FROM tools ORDER BY created DESC, id DESC"
+        ).fetchall()
+    saved = {}
+    legacy = {}
+    for row in snapshots:
+        if row["session_id"] is None:
+            legacy.setdefault(row["source"], []).append(row["script"])
+        else:
+            saved.setdefault((row["session_id"], row["source"]), row)
     candidates = []
     for session in sessions:
         sid = session["id"]
-        for source in workspace_files(DATA / sid / "workspace", for_tools=True):
-            if (sid, source) in saved:
-                continue
-            if source in legacy:
-                root = DATA / sid / "workspace"
+        root = DATA / sid / "workspace"
+        for source in workspace_files(root, for_tools=True):
+            snapshot = saved.get((sid, source))
+            if snapshot or source in legacy:
                 try:
                     with open_download(root, workspace_file(root, source)) as handle:
-                        if handle.read(262145) in legacy[source]:
-                            continue
+                        current = handle.read(262145)
                 except OSError:
                     continue
-            candidates.append({"session": sid, "title": session["title"], "source": source})
+                if snapshot and current == snapshot["script"]:
+                    continue
+                if not snapshot and current in legacy.get(source, []):
+                    continue
+            candidate = {"session": sid, "title": session["title"], "source": source}
+            if snapshot:
+                candidate["updateId"] = snapshot["id"]
+            candidates.append(candidate)
     return candidates
 
 
@@ -404,6 +466,7 @@ def execute(run):
         process.stdin.write(prompt)
         process.stdin.close()
         completed = False
+        produced_result = False
         for line in process.stdout:
             line = line.strip().replace(proxy_token, "[已隐藏]")
             if provider["key"]:
@@ -426,17 +489,25 @@ def execute(run):
                 item = message.get("item", {})
                 item_type = item.get("type")
                 if item_type == "agent_message":
-                    event(run_id, "reply", item.get("text", ""))
+                    reply = item.get("text") or ""
+                    produced_result |= kind == "item.completed" and bool(reply.strip())
+                    event(run_id, "reply", reply)
                 elif item_type == "command_execution":
+                    produced_result |= kind == "item.completed" and item.get("exit_code") == 0
                     label = "执行" if kind == "item.started" else f"退出码 {item.get('exit_code')}"
                     event(run_id, "command", f"{label} · {item.get('command', '')}\n{item.get('aggregated_output', '')}")
                 elif item_type == "file_change":
+                    produced_result |= (kind == "item.completed" and item.get("status") != "failed"
+                                        and bool(item.get("changes")))
                     event(run_id, "file", ", ".join(change["path"] for change in item.get("changes", [])))
                 elif item_type == "error":
                     event(run_id, "log", item.get("message", ""))
-        if process.wait() == 0 and completed:
+        returncode = process.wait()
+        if returncode == 0 and completed and produced_result:
             status = "completed"
-        elif not completed:
+        elif returncode == 0 and completed:
+            event(run_id, "error", "Agent 返回了空结果。请重试本轮。")
+        else:
             event(run_id, "error", "Agent 未完成本轮。请查看运行记录后重试。")
     except Exception as exc:
         event(run_id, "error", str(exc))
@@ -444,9 +515,15 @@ def execute(run):
         PROXY_SESSIONS.pop(proxy_token, None)
         if timer:
             timer.cancel()
-        if process and process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+        if process:
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+            process.stdin.close()
+            process.stdout.close()
         with db() as con:
             con.execute("UPDATE runs SET status = ? WHERE id = ?", (status, run_id))
 
@@ -642,9 +719,12 @@ class Handler(BaseHTTPRequestHandler):
                      "Accept": "text/event-stream"},
         )
         try:
-            upstream = urllib.request.urlopen(req, timeout=180)
+            upstream = MODEL_HTTP.open(req, timeout=180)
         except urllib.error.HTTPError as exc:
             with exc:
+                if 300 <= exc.code < 400:
+                    self.respond({"error": "模型服务重定向失败，请填写最终 API 地址"}, 502)
+                    return
                 body = exc.read(8192).replace(config["key"].encode(), b"[redacted]")
                 self.send_bytes(body, "application/json", exc.code)
             return

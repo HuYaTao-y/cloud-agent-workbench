@@ -46,3 +46,58 @@ class AdapterTests(unittest.TestCase):
             for name in ("json2csv.py", "setup.py", "test_helper.py", "tests/fixtures.py"):
                 (root / name).touch()
             self.assertEqual(app.workspace_files(root, for_tools=True), ["json2csv.py"])
+
+    def test_empty_agent_turn_is_marked_failed_and_retryable(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as temp, patch.object(app, "DATA", Path(temp)):
+            app.initialize()
+            session = app.create_session("Empty response")
+            with app.db() as con:
+                run = con.execute("INSERT INTO runs(session,prompt,status) VALUES (?, 'test', 'queued')",
+                                  (session,)).lastrowid
+            Path(temp).chmod(0o755)
+            cli = Path(temp) / "codex"
+            cli.write_text("#!/bin/sh\ncat >/dev/null\n" + "echo '" + json.dumps({"type": "turn.completed"}) + "'\n")
+            cli.chmod(0o755)
+            with patch.object(app.shutil, "which", return_value=str(cli)):
+                app.execute((run, session, "test"))
+            with app.db() as con:
+                result = con.execute("SELECT status, events FROM runs WHERE id = ?", (run,)).fetchone()
+            self.assertEqual(result["status"], "failed")
+            self.assertIn("空结果", json.loads(result["events"])[-1]["text"])
+
+    def test_model_request_rejects_cross_origin_redirect(self):
+        from urllib.error import HTTPError
+        from urllib.request import Request
+
+        request = Request("https://source.invalid/models", headers={"Authorization": "Bearer synthetic"})
+        with self.assertRaises(HTTPError):
+            app.ModelRedirectHandler().redirect_request(
+                request, None, 302, "Found", {}, "https://other.invalid/models"
+            )
+
+    def test_changed_script_is_discovered_and_updates_saved_tool(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as temp, patch.object(app, "DATA", Path(temp)):
+            app.initialize()
+            session = app.create_session("Tools")
+            with app.db() as con:
+                con.execute("INSERT INTO runs(session, prompt, status) VALUES (?, 'test', 'completed')", (session,))
+            source = Path(temp) / session / "workspace" / "converter.py"
+            source.write_text("print(1)")
+            payload = {"source": source.name, "name": "Converter"}
+            tool = app.register_tool(session, payload)
+            self.assertEqual(app.tool_candidates(), [])
+            source.write_text("print(2)")
+            self.assertEqual(app.tool_candidates()[0]["updateId"], tool)
+            self.assertEqual(app.register_tool(session, payload | {"updateId": tool}), tool)
+            self.assertEqual(app.tool_candidates(), [])
+            with app.db() as con:
+                self.assertEqual(con.execute("SELECT script FROM tools").fetchone()["script"], b"print(2)")

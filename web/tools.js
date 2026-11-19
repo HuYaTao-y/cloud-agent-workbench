@@ -1,6 +1,7 @@
 let publishing = null;
 let selectedTool = null;
 let outputURL = null;
+let inputRevision = 0;
 let modelRevision = 0;
 
 function setStatus(id, message, failed = false) {
@@ -9,8 +10,8 @@ function setStatus(id, message, failed = false) {
   target.classList.toggle('error', failed);
 }
 
-function openPublish(session, source) {
-  publishing = {session, source};
+function openPublish(session, source, previous = null) {
+  publishing = {session, source, previous};
   get('publish-form').reset();
   get('publish-source').textContent = source;
   const filename = source.split('/').at(-1);
@@ -21,8 +22,19 @@ function openPublish(session, source) {
     get('publish-accept').value = '.json';
     get('publish-output-format').value = 'csv';
   }
+  if (previous) {
+    get('publish-name').value = previous.name;
+    get('publish-description').value = previous.description;
+    get('publish-accept').value = previous.accept;
+    get('publish-output-format').value = previous.output_format;
+    get('publish-flag').value = previous.flag;
+    get('publish-flag-label').value = previous.flag_label;
+  }
+  const dialog = get('publish-tool');
+  dialog.querySelector('h2').textContent = previous ? '更新工具' : '保存为工具';
+  dialog.querySelector('button[type="submit"]').textContent = previous ? '替换脚本快照' : '保存工具';
   get('publish-error').hidden = true;
-  get('publish-tool').showModal();
+  dialog.showModal();
 }
 
 get('publish-cancel').onclick = () => get('publish-tool').close();
@@ -31,12 +43,13 @@ get('publish-form').onsubmit = async (event) => {
   const button = event.submitter;
   button.disabled = true;
   try {
-    const {session, source} = publishing;
+    const {session, source, previous} = publishing;
     const body = {source, outputFormat: get('publish-output-format').value};
     for (const key of ['name', 'description', 'accept', 'flag', 'flagLabel']) {
       const id = key === 'flagLabel' ? 'flag-label' : key;
       body[key] = get('publish-' + id).value;
     }
+    if (previous) body.updateId = previous.id;
     const tool = await post('/api/sessions/' + session + '/tools', body);
     get('publish-tool').close();
     await openTools(tool.id);
@@ -47,6 +60,16 @@ get('publish-form').onsubmit = async (event) => {
     button.disabled = false;
   }
 };
+
+function clearToolResult() {
+  inputRevision++;
+  get('tool-result').hidden = true;
+  get('tool-download').hidden = true;
+  get('tool-download').removeAttribute('href');
+  if (outputURL) URL.revokeObjectURL(outputURL);
+  outputURL = null;
+  setStatus('tool-state', '');
+}
 
 function renderTool(tool) {
   selectedTool = tool;
@@ -62,8 +85,7 @@ function renderTool(tool) {
   get('tool-file-hint').textContent = (tool.accept ? tool.accept.toUpperCase() + ' · ' : '') + '最大 20 MiB';
   get('tool-flag-row').hidden = !tool.flag;
   get('tool-flag-label').textContent = tool.flag_label;
-  get('tool-result').hidden = true;
-  setStatus('tool-state', '');
+  clearToolResult();
 }
 
 async function openTools(preferred = null) {
@@ -83,8 +105,9 @@ async function openTools(preferred = null) {
     get('candidate-list').replaceChildren(...candidates.map((candidate) => {
       const card = element('div', 'tool-candidate');
       card.append(element('strong', '', candidate.source), element('span', '', candidate.title));
-      const save = element('button', 'publish-file', '配置并保存');
-      save.onclick = () => openPublish(candidate.session, candidate.source);
+      const previous = tools.find((tool) => tool.id === candidate.updateId);
+      const save = element('button', 'publish-file', previous ? '查看并更新' : '配置并保存');
+      save.onclick = () => openPublish(candidate.session, candidate.source, previous);
       card.append(save);
       return card;
     }));
@@ -98,7 +121,9 @@ async function openTools(preferred = null) {
 get('show-tools').onclick = () => openTools();
 get('tool-input').onchange = () => {
   get('tool-file-name').textContent = get('tool-input').files[0]?.name || '选择输入文件';
+  clearToolResult();
 };
+get('tool-flag').onchange = clearToolResult;
 
 get('tool-run').onsubmit = async (event) => {
   event.preventDefault();
@@ -107,12 +132,13 @@ get('tool-run').onsubmit = async (event) => {
   if (!tool || !file) return;
   const button = get('tool-run-button');
   button.disabled = true;
-  get('tool-result').hidden = true;
+  clearToolResult();
+  const revision = inputRevision;
   setStatus('tool-state', '正在运行…');
   try {
     const params = new URLSearchParams({name: file.name, flag: get('tool-flag').checked ? '1' : '0'});
     const result = await api('/api/tools/' + tool.id + '/run?' + params, {method: 'POST', body: file});
-    if (tool !== selectedTool) return;
+    if (tool !== selectedTool || revision !== inputRevision) return;
     setStatus('tool-state', result.ok ? '运行完成' : result.error, !result.ok);
     get('tool-result').hidden = false;
     const rows = result.rows || [];
@@ -128,7 +154,6 @@ get('tool-run').onsubmit = async (event) => {
     get('tool-diagnostics').querySelector('pre').textContent = result.diagnostics || '';
     const link = get('tool-download');
     link.hidden = !result.ok || !result.output;
-    if (outputURL) URL.revokeObjectURL(outputURL);
     if (!link.hidden) {
       const isCsv = tool.output_format === 'csv';
       const mime = isCsv ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8';
@@ -137,7 +162,7 @@ get('tool-run').onsubmit = async (event) => {
       link.download = file.name.replace(/\.[^.]+$/, '') + (isCsv ? '-result.csv' : '-result.txt');
     }
   } catch (error) {
-    if (tool === selectedTool) setStatus('tool-state', error.message, true);
+    if (tool === selectedTool && revision === inputRevision) setStatus('tool-state', error.message, true);
   } finally {
     if (tool === selectedTool) button.disabled = false;
   }
